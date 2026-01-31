@@ -315,7 +315,7 @@ if ($DryRun) {
         "--non-interactive",
         "--accept-risk",
         "--mode", "local",
-        "--auth-choice", "skip",           # Skip auth for now, will patch later
+        "--auth-choice", "qwen-portal",    # Use qwen-portal to auto-enable plugin
         "--gateway-port", "18789",
         "--gateway-bind", "loopback",
         "--install-daemon",
