@@ -67,7 +67,7 @@ $script:NoOnboard = $NoOnboard -or ($env:CLAWDBOT_NO_ONBOARD -eq "1")
 $script:NoPrompt = $NoPrompt -or ($env:CLAWDBOT_NO_PROMPT -eq "1")
 $script:DryRun = $DryRun -or ($env:CLAWDBOT_DRY_RUN -eq "1")
 $OpenclawVersion = if ($Version) { $Version } elseif ($env:CLAWDBOT_VERSION) { $env:CLAWDBOT_VERSION } else { "latest" }
-$NpmRegistry = if ($Registry) { $Registry } elseif ($env:CLAWDBOT_NPM_REGISTRY) { $env:CLAWDBOT_NPM_REGISTRY } else { "https://registry.npmjs.org" }
+$NpmRegistry = if ($Registry) { $Registry } elseif ($env:CLAWDBOT_NPM_REGISTRY) { $env:CLAWDBOT_NPM_REGISTRY } else { "https://registry.npmmirror.com" }
 $UseBeta = $Beta -or ($env:CLAWDBOT_BETA -eq "1")
 $script:Verbose = $Verbose -or ($env:CLAWDBOT_VERBOSE -eq "1")
 
