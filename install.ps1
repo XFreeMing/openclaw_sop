@@ -1,13 +1,11 @@
 <# OpenClaw Chinese Edition Installer (Windows PowerShell) #>
 <# Usage: iwr -useb https://clawd.org.cn/install.ps1 | iex #>
-<# Usage with registry: .\install.ps1 -Registry https://registry.npmmirror.com #>
+<# 一键安装，无需任何参数 #>
 
 param(
     [string]$Version,
     [switch]$Beta,
     [string]$Registry,
-    [switch]$NoOnboard,
-    [switch]$NoPrompt,
     [switch]$DryRun,
     [switch]$Verbose,
     [switch]$Help
@@ -16,12 +14,11 @@ param(
 # Do NOT use "Stop" - it causes the script to exit immediately on any error
 $ErrorActionPreference = "Continue"
 
-# Set UTF-8 encoding for Chinese characters in moltbot-cn output
+# Set UTF-8 encoding for Chinese characters
 try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     [Console]::InputEncoding = [System.Text.Encoding]::UTF8
     $OutputEncoding = [System.Text.Encoding]::UTF8
-    # Set code page to UTF-8
     chcp 65001 | Out-Null
 } catch {
     # Ignore errors
@@ -42,34 +39,130 @@ if ($Help) {
     Write-Host ""
     Write-Host "Usage:" -ForegroundColor $InfoColor
     Write-Host "  iwr -useb https://clawd.org.cn/install.ps1 | iex"
-    Write-Host "  .\install.ps1 [options]"
+    Write-Host "  .\install.ps1"
     Write-Host ""
     Write-Host "Options:" -ForegroundColor $InfoColor
     Write-Host "  -Version <version>    npm install version (default: latest)"
-    Write-Host "  -Beta                 Use beta version (if available)"
-    Write-Host "  -Registry <url>       npm registry (default: https://registry.npmjs.org)"
-    Write-Host "  -NoOnboard            Skip onboarding (non-interactive)"
-    Write-Host "  -NoPrompt             Disable prompts (required for CI/automation)"
+    Write-Host "  -Beta                 Use beta version"
+    Write-Host "  -Registry <url>       npm registry (default: npmmirror)"
     Write-Host "  -DryRun               Print what would be done (no changes)"
     Write-Host "  -Verbose              Print debug output"
     Write-Host "  -Help                 Show this help"
     Write-Host ""
-    Write-Host "Examples:" -ForegroundColor $InfoColor
-    Write-Host "  iwr -useb https://clawd.org.cn/install.ps1 | iex"
-    Write-Host "  .\install.ps1 -Registry https://registry.npmmirror.com"
-    Write-Host "  .\install.ps1 -Version 1.0.0 -NoOnboard"
-    Write-Host ""
     exit 0
 }
 
-# Config - CLI args override env vars
-$script:NoOnboard = $NoOnboard -or ($env:CLAWDBOT_NO_ONBOARD -eq "1")
-$script:NoPrompt = $NoPrompt -or ($env:CLAWDBOT_NO_PROMPT -eq "1")
+# Config
 $script:DryRun = $DryRun -or ($env:CLAWDBOT_DRY_RUN -eq "1")
+$script:Verbose = $Verbose -or ($env:CLAWDBOT_VERBOSE -eq "1")
 $OpenclawVersion = if ($Version) { $Version } elseif ($env:CLAWDBOT_VERSION) { $env:CLAWDBOT_VERSION } else { "latest" }
 $NpmRegistry = if ($Registry) { $Registry } elseif ($env:CLAWDBOT_NPM_REGISTRY) { $env:CLAWDBOT_NPM_REGISTRY } else { "https://registry.npmmirror.com" }
 $UseBeta = $Beta -or ($env:CLAWDBOT_BETA -eq "1")
-$script:Verbose = $Verbose -or ($env:CLAWDBOT_VERBOSE -eq "1")
+
+#region ========== Default Configuration (内置默认配置) ==========
+
+# 主配置 (moltbot.json)
+$DefaultConfig = @'
+{
+  "meta": {
+    "lastTouchedVersion": "2026.1.30"
+  },
+  "auth": {
+    "profiles": {
+      "qwen-portal:default": {
+        "provider": "qwen-portal",
+        "mode": "oauth"
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "qwen-portal": {
+        "baseUrl": "https://portal.qwen.ai/v1",
+        "apiKey": "qwen-oauth",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "coder-model",
+            "name": "Qwen Coder",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 128000,
+            "maxTokens": 8192
+          },
+          {
+            "id": "vision-model",
+            "name": "Qwen Vision",
+            "reasoning": false,
+            "input": ["text", "image"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 128000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "qwen-portal/vision-model"
+      },
+      "models": {
+        "qwen-portal/coder-model": { "alias": "qwen" },
+        "qwen-portal/vision-model": {}
+      },
+      "compaction": { "mode": "safeguard" },
+      "maxConcurrent": 4,
+      "subagents": { "maxConcurrent": 8 }
+    }
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto"
+  },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "boot-md": { "enabled": true },
+        "session-memory": { "enabled": true }
+      }
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token"
+    },
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    }
+  },
+  "plugins": {
+    "entries": {
+      "qwen-portal-auth": { "enabled": true }
+    }
+  }
+}
+'@
+
+# 认证配置 (auth-profiles.json) - 空模板，需要用户登录
+$DefaultAuthProfiles = @'
+{
+  "version": 1,
+  "profiles": {}
+}
+'@
+
+#endregion
 
 # Refresh PATH in current session
 function Refresh-Path {
@@ -93,102 +186,125 @@ function Get-NpmGlobalBin {
     } catch {
         # Ignore
     }
-    # Default fallback
     return "$env:APPDATA\npm"
 }
 
-# Ensure npm global bin is in PATH (for non-admin users)
+# Ensure npm global bin is in PATH
 function Ensure-NpmInPath {
     $npmBin = Get-NpmGlobalBin
-    
-    # Check if already in PATH
     $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -and $userPath.ToLower().Contains($npmBin.ToLower())) {
-        if ($script:Verbose) {
-            Write-Host "  [debug] npm bin already in PATH: $npmBin" -ForegroundColor $MutedColor
-        }
         return
     }
     
-    # Add to user PATH
     Write-Host "[*] Adding npm global bin to PATH: $npmBin" -ForegroundColor $InfoColor
     
     if ($DryRun) {
         Write-Host "  [dry-run] Would add to User PATH: $npmBin" -ForegroundColor $MutedColor
     } else {
         try {
-            if ([string]::IsNullOrEmpty($userPath)) {
-                $newPath = $npmBin
-            } else {
-                $newPath = "$userPath;$npmBin"
-            }
+            $newPath = if ([string]::IsNullOrEmpty($userPath)) { $npmBin } else { "$userPath;$npmBin" }
             [System.Environment]::SetEnvironmentVariable("Path", $newPath, "User")
             Write-Host "[OK] npm bin added to User PATH" -ForegroundColor $SuccessColor
         } catch {
             Write-Host "[!] Failed to update PATH: $_" -ForegroundColor $WarnColor
-            Write-Host "  You may need to manually add this to your PATH: $npmBin" -ForegroundColor $InfoColor
         }
     }
-    
-    # Refresh current session
     Refresh-Path
 }
 
-# Configure npm for user-level global installs (non-admin)
+# Configure npm for user-level global installs
 function Configure-NpmForUser {
     $npmPrefix = "$env:APPDATA\npm"
     
-    # Ensure the directory exists
     if (-not (Test-Path $npmPrefix)) {
-        if ($DryRun) {
-            Write-Host "  [dry-run] Would create directory: $npmPrefix" -ForegroundColor $MutedColor
-        } else {
+        if (-not $DryRun) {
             try {
                 New-Item -ItemType Directory -Path $npmPrefix -Force | Out-Null
             } catch {
-                Write-Host "[!] Failed to create npm directory: $_" -ForegroundColor $WarnColor
+                # Ignore
             }
         }
     }
     
-    # Set npm prefix to user directory
-    if ($DryRun) {
-        Write-Host "  [dry-run] Would set npm prefix: $npmPrefix" -ForegroundColor $MutedColor
-    } else {
+    if (-not $DryRun) {
         try {
             npm config set prefix "$npmPrefix" 2>$null
-            if ($script:Verbose) {
-                Write-Host "  [debug] npm prefix set to: $npmPrefix" -ForegroundColor $MutedColor
-            }
         } catch {
-            # Ignore - npm will use default
+            # Ignore
         }
     }
 }
 
-# Store admin status
-$script:IsAdmin = Test-IsAdmin
-
-# Banner
-Write-Host ""
-Write-Host "  ======================================" -ForegroundColor $AccentColor
-Write-Host "       OpenClaw Chinese Edition" -ForegroundColor $AccentColor
-Write-Host "  ======================================" -ForegroundColor $AccentColor
-Write-Host ""
-
-# Detect OS
-Write-Host "[OK] Windows detected" -ForegroundColor $SuccessColor
-
-# Show admin status and configure for non-admin
-if ($script:IsAdmin) {
-    Write-Host "[OK] Running as Administrator" -ForegroundColor $SuccessColor
-} else {
-    Write-Host "[*] Running as standard user (non-admin)" -ForegroundColor $InfoColor
-    Write-Host "  Will install to user directory: $env:APPDATA\npm" -ForegroundColor $MutedColor
-    Configure-NpmForUser
+# Deploy default config files
+function Deploy-DefaultConfig {
+    $clawdbotDir = "$env:USERPROFILE\.clawdbot"
+    
+    # Create directory
+    if (-not (Test-Path $clawdbotDir)) {
+        if ($DryRun) {
+            Write-Host "  [dry-run] Would create: $clawdbotDir" -ForegroundColor $MutedColor
+        } else {
+            try {
+                New-Item -ItemType Directory -Path $clawdbotDir -Force | Out-Null
+                Write-Host "[OK] Created config directory" -ForegroundColor $SuccessColor
+            } catch {
+                Write-Host "[!] Failed to create config directory: $_" -ForegroundColor $ErrorColor
+                return $false
+            }
+        }
+    }
+    
+    # Deploy moltbot.json (only if not exists)
+    $configPath = "$clawdbotDir\moltbot.json"
+    if (-not (Test-Path $configPath)) {
+        if ($DryRun) {
+            Write-Host "  [dry-run] Would create: $configPath" -ForegroundColor $MutedColor
+        } else {
+            try {
+                $DefaultConfig | Out-File -FilePath $configPath -Encoding UTF8
+                Write-Host "[OK] Created default config: moltbot.json" -ForegroundColor $SuccessColor
+            } catch {
+                Write-Host "[!] Failed to create config: $_" -ForegroundColor $ErrorColor
+                return $false
+            }
+        }
+    } else {
+        Write-Host "[*] Config already exists, skipping" -ForegroundColor $MutedColor
+    }
+    
+    # Deploy auth-profiles.json (only if not exists)
+    $authPath = "$clawdbotDir\auth-profiles.json"
+    if (-not (Test-Path $authPath)) {
+        if ($DryRun) {
+            Write-Host "  [dry-run] Would create: $authPath" -ForegroundColor $MutedColor
+        } else {
+            try {
+                $DefaultAuthProfiles | Out-File -FilePath $authPath -Encoding UTF8
+                Write-Host "[OK] Created auth profiles template" -ForegroundColor $SuccessColor
+            } catch {
+                Write-Host "[!] Failed to create auth profiles: $_" -ForegroundColor $ErrorColor
+                return $false
+            }
+        }
+    }
+    
+    # Create workspace directory
+    $workspaceDir = "$env:USERPROFILE\clawd"
+    if (-not (Test-Path $workspaceDir)) {
+        if (-not $DryRun) {
+            try {
+                New-Item -ItemType Directory -Path $workspaceDir -Force | Out-Null
+            } catch {
+                # Ignore
+            }
+        }
+    }
+    
+    return $true
 }
 
-# Check Node.js
+# Check Node.js installed
 function Test-NodeInstalled {
     $nodeVersion = $null
     try {
@@ -206,7 +322,7 @@ function Test-NodeInstalled {
             Write-Host "[OK] Node.js $nodeVersion installed" -ForegroundColor $SuccessColor
             return $true
         } else {
-            Write-Host "[!] Node.js $nodeVersion installed, but v22+ required" -ForegroundColor $WarnColor
+            Write-Host "[!] Node.js $nodeVersion found, but v22+ required" -ForegroundColor $WarnColor
             return $false
         }
     } else {
@@ -221,9 +337,7 @@ function Install-NodeJS {
     
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "  Using winget..." -ForegroundColor $MutedColor
-        if ($DryRun) {
-            Write-Host "  [dry-run] winget install OpenJS.NodeJS.LTS" -ForegroundColor $MutedColor
-        } else {
+        if (-not $DryRun) {
             & winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
             Refresh-Path
         }
@@ -233,9 +347,7 @@ function Install-NodeJS {
     
     if (Get-Command choco -ErrorAction SilentlyContinue) {
         Write-Host "  Using Chocolatey..." -ForegroundColor $MutedColor
-        if ($DryRun) {
-            Write-Host "  [dry-run] choco install nodejs-lts -y" -ForegroundColor $MutedColor
-        } else {
+        if (-not $DryRun) {
             & choco install nodejs-lts -y
             Refresh-Path
         }
@@ -245,9 +357,7 @@ function Install-NodeJS {
     
     if (Get-Command scoop -ErrorAction SilentlyContinue) {
         Write-Host "  Using Scoop..." -ForegroundColor $MutedColor
-        if ($DryRun) {
-            Write-Host "  [dry-run] scoop install nodejs-lts" -ForegroundColor $MutedColor
-        } else {
+        if (-not $DryRun) {
             & scoop install nodejs-lts
             Refresh-Path
         }
@@ -257,32 +367,36 @@ function Install-NodeJS {
     
     Write-Host ""
     Write-Host "ERROR: Cannot auto-install Node.js" -ForegroundColor $ErrorColor
-    Write-Host ""
-    Write-Host "Please install Node.js 22+ manually:" -ForegroundColor $InfoColor
-    Write-Host "  https://nodejs.org/en/download/" -ForegroundColor $AccentColor
-    Write-Host ""
+    Write-Host "Please install Node.js 22+ manually: https://nodejs.org/" -ForegroundColor $InfoColor
     return $false
 }
 
-# Check and install Node.js
+$script:IsAdmin = Test-IsAdmin
+
+# Banner
+Write-Host ""
+Write-Host "  ======================================" -ForegroundColor $AccentColor
+Write-Host "       OpenClaw Chinese Edition" -ForegroundColor $AccentColor
+Write-Host "         一键安装 (Zero Config)" -ForegroundColor $AccentColor
+Write-Host "  ======================================" -ForegroundColor $AccentColor
+Write-Host ""
+
+# OS detection
+Write-Host "[OK] Windows detected" -ForegroundColor $SuccessColor
+
+# Admin status
+if ($script:IsAdmin) {
+    Write-Host "[OK] Running as Administrator" -ForegroundColor $SuccessColor
+} else {
+    Write-Host "[*] Running as standard user" -ForegroundColor $InfoColor
+    Configure-NpmForUser
+}
+
+# Check and install Node.js (auto, no prompt)
 if (-not (Test-NodeInstalled)) {
-    if ($NoPrompt) {
-        if (-not (Install-NodeJS)) {
-            exit 1
-        }
-    } else {
-        Write-Host ""
-        $response = Read-Host "Install Node.js? [Y/n]"
-        if ([string]::IsNullOrEmpty($response) -or $response -match '^[Yy]') {
-            if (-not (Install-NodeJS)) {
-                exit 1
-            }
-        } else {
-            Write-Host "Node.js 22+ is required" -ForegroundColor $ErrorColor
-            exit 1
-        }
+    if (-not (Install-NodeJS)) {
+        exit 1
     }
-    
     if (-not (Test-NodeInstalled)) {
         Write-Host "Node.js installation failed" -ForegroundColor $ErrorColor
         exit 1
@@ -299,34 +413,25 @@ if ($UseBeta) {
 
 Write-Host ""
 Write-Host "[*] Installing $spec..." -ForegroundColor $InfoColor
-Write-Host "[*] npm registry: $NpmRegistry" -ForegroundColor $MutedColor
+Write-Host "[*] Registry: $NpmRegistry" -ForegroundColor $MutedColor
 
 if ($DryRun) {
     Write-Host "  [dry-run] npm install -g $spec" -ForegroundColor $MutedColor
 } else {
-    # Build the full command as a string to avoid argument parsing issues
-    # Note: removed --loglevel error so users can see install progress
     $npmCmd = "npm install -g `"$spec`" --no-fund --no-audit --registry `"$NpmRegistry`""
-    
-    # Use cmd /c to execute npm reliably
     cmd /c $npmCmd
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "ERROR: npm install failed (exit code: $LASTEXITCODE)" -ForegroundColor $ErrorColor
-        Write-Host "Try running manually: npm install -g $spec --registry $NpmRegistry" -ForegroundColor $InfoColor
-        Read-Host "Press Enter to exit"
         exit 1
     }
     
     Write-Host "[OK] OpenClaw installed successfully" -ForegroundColor $SuccessColor
     
-    # For non-admin users, ensure npm bin is in PATH permanently
     if (-not $script:IsAdmin) {
         Ensure-NpmInPath
     }
-    
-    # Refresh PATH so openclaw-cn is available
     Refresh-Path
 }
 
@@ -341,43 +446,25 @@ try {
 if ($version -and $version -notmatch 'not recognized') {
     Write-Host "[OK] Version: $version" -ForegroundColor $SuccessColor
 } else {
-    Write-Host "[!] Could not verify installation - you may need to restart your terminal" -ForegroundColor $WarnColor
+    Write-Host "[!] Could not verify installation - restart terminal may be needed" -ForegroundColor $WarnColor
 }
 
-# Run onboarding
-if (-not $NoOnboard -and -not $DryRun) {
-    # Check if openclaw-cn is available
-    $openclawAvailable = $false
-    try {
-        $testCmd = & openclaw-cn --version 2>&1
-        if ($testCmd -and $testCmd -notmatch 'not recognized') {
-            $openclawAvailable = $true
-        }
-    } catch {
-        # Ignore
-    }
-    
-    if ($openclawAvailable) {
-        Write-Host ""
-        Write-Host "[*] Starting onboarding..." -ForegroundColor $InfoColor
-        Write-Host ""
-        & openclaw-cn onboard
-    } else {
-        Write-Host ""
-        Write-Host "[!] openclaw-cn not found in PATH" -ForegroundColor $WarnColor
-        Write-Host "Please restart your terminal and run: openclaw-cn onboard" -ForegroundColor $InfoColor
-    }
-} else {
-    Write-Host ""
-    Write-Host "Tip: Run 'openclaw-cn onboard' to start setup" -ForegroundColor $InfoColor
-}
-
+# Deploy default configuration (一键部署默认配置)
 Write-Host ""
-Write-Host "Installation complete!" -ForegroundColor $SuccessColor
-Write-Host ""
-
-# Keep window open if running interactively
-if ($Host.UI.RawUI.WindowTitle) {
-    Write-Host "Press any key to exit..." -ForegroundColor $MutedColor
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+Write-Host "[*] Deploying default configuration..." -ForegroundColor $InfoColor
+if (-not (Deploy-DefaultConfig)) {
+    Write-Host "[!] Config deployment failed, but installation completed" -ForegroundColor $WarnColor
 }
+
+# Done - no onboarding wizard, config is already deployed
+Write-Host ""
+Write-Host "======================================" -ForegroundColor $SuccessColor
+Write-Host "  Installation Complete!" -ForegroundColor $SuccessColor
+Write-Host "======================================" -ForegroundColor $SuccessColor
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor $InfoColor
+Write-Host "  1. Login to Qwen Portal: openclaw-cn models auth login --provider qwen-portal" -ForegroundColor $AccentColor
+Write-Host "  2. Start Gateway:        openclaw-cn gateway" -ForegroundColor $AccentColor
+Write-Host ""
+Write-Host "Config location: $env:USERPROFILE\.clawdbot\" -ForegroundColor $MutedColor
+Write-Host ""
